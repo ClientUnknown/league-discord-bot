@@ -5,8 +5,9 @@ import cassiopeia as kass
 import config
 import arrow
 import random
-from sortedcontainers import SortedList
-from cassiopeia import Summoner, Match, Patch
+import StoreMatches
+import time
+from cassiopeia import Summoner, Match, Patch, Champion
 from cassiopeia.core import MatchHistory
 from cassiopeia import Queue
 from discord.ext import commands
@@ -21,9 +22,12 @@ champion_gg_api_key = config.championGGAPI
 kass.set_riot_api_key(config.riotAPI)
 watcher = RiotWatcher(config.riotAPI)
 
-
 all_champions = kass.Champions(region="NA")
 
+latestLeaguePatch = kass.get_versions(region="NA")
+
+
+StoreMatches.populateTables()
 
 # Shows when bot is ready
 @bot.event
@@ -38,12 +42,20 @@ async def hello():
 
 # Method that checks if there is a new patch, used for pulling match history
 def newPatch():
-    ver = False
-    realms = kass.get_realms(region="NA")
-    print(realms.latest_versions)
-    if realms.latest_versions['champion'] != "8.3.1":
-        ver = True
-    return ver
+    currLeaguePatch = kass.get_versions(region="NA")
+    newPatch = False
+    if currLeaguePatch[0] != latestLeaguePatch[0]:
+        newPatch = True
+    return newPatch
+
+# Collect new matches if there's been a patch, check every 24 hours
+@bot.event
+async def checkLeaguePatch():
+    if newPatch():
+        StoreMatches.populateTables()
+        print("New version of League, re-populating database")
+    time.sleep(86400)
+    checkLeaguePatch()
 
 # This command will generate information on a given champion
 @bot.command()
@@ -73,73 +85,6 @@ async def champError(error):
     await bot.say(error)
 
 
-@bot.command()
-async def vs(champ1, champ2, roleSelected):
-    """Enter <champion> <champion> <middle, top, jungle, duo_carry, duo_support>
-    to get information on two champions pitted against eachother"""
-    champ1 = champ1.title()
-    champ2 = champ2.title()
-    roleSelected = roleSelected.upper()
-    try:
-        champ1ID = all_champions[champ1].id
-        champ2ID = all_champions[champ2].id
-        
-    except Warning as err:
-        vsError(err)
-
-# Error catching for vs command
-@vs.error
-async def vsError(error):
-    await bot.say(error)
-
-# Filters the match history that will be pulled for vs command
-def filterHistory(summoner, patch):
-    endTime = patch.end
-    if endTime is None:
-        endTime = arrow.now()
-    matchHistory = MatchHistory(summoner=summoner, queues={Queue.ranked_flex_fives}, begin_time=patch.start, end_time=endTime)
-    return matchHistory
-
-# Pulls matches from the start of the most recent patch using a random SILVER player as starting point
-def collectMatches():
-    summoner = Summoner(name="Ung5r", region="NA")  # A default summoner to pull matches from
-    patchNo = Patch.from_str('8.1', region="NA")
-
-    unpulledSummonerIDS = SortedList([summoner.id])
-    pulledSummonerIDS = SortedList()
-
-    unpulledMatchIDS = SortedList()
-    pulledMatchIDS = SortedList()
-
-    matchesList = []
-    x = 0
-    while unpulledSummonerIDS and x != 5:
-        newSummonerID = random.choice(unpulledSummonerIDS)
-        newSummoner = Summoner(id=newSummonerID, region="NA")
-        matches = filterHistory(newSummoner, patchNo)
-        unpulledMatchIDS.update([match.id for match in matches])
-        unpulledSummonerIDS.remove(newSummonerID)
-        pulledSummonerIDS.add(newSummonerID)
-
-        while unpulledMatchIDS and x != 5:
-            newMatchID = random.choice(unpulledMatchIDS)
-            newMatch = Match(id=newMatchID, region="NA")
-            for participant in newMatch.participants:
-                if participant.summoner.id not in pulledSummonerIDS and participant.summoner.id not in unpulledSummonerIDS:
-                    unpulledSummonerIDS.add(participant.summoner.id)
-            unpulledMatchIDS.remove(newMatchID)
-            pulledMatchIDS.add(newMatchID)
-            x += 1
-    x += 1
-    champion_id_to_name_mapping = {champion.id: champion.name for champion in kass.get_champions(region="NA")}
-    for entry in pulledMatchIDS:
-        matchesList.append(kass.get_match(id=entry,region="NA"))
-    testing = matchesList[0].participants[0].champion.recommended_itemsets[0].item_sets[0].items
-    for item in testing:
-        print(item.name)
-    return matchesList
-collectMatches()
-
 # This command will generate information on a given player
 @bot.command()
 async def player(playerName):
@@ -153,13 +98,12 @@ async def player(playerName):
     winrate = 0.0
     try:
         playerID = watcher.summoner.by_name('na1', playerName)
-        playerStats = watcher.league.positions_by_summoner(
-            'na1', playerID['id'])
+        playerStats = watcher.league.positions_by_summoner('na1', playerID['id'])
     except HTTPError as err:
         if err.response.status_code == 404:
             await bot.say("Could not find the user")
         else:
-            playerError(err)
+            await playerError(err)
     # Check here if the data returned from the API call is for solo/duo
     # or for 5v5 flex and keep track of that information
     if not playerStats:
