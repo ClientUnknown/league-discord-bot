@@ -54,7 +54,7 @@ def collectMatches():
 
 # Filters the match history that will be pulled
 def filterHistory(summoner, patch):
-    # This is the timeframe we want to pull matches from, based on patch versions
+    # This is the timeframe we want to pull matches from, based ofn patch versions
     endTime = patch.end
     if endTime is None:
         endTime = arrow.now()   # If there is an issue with the most recent patch, we'll go until current time
