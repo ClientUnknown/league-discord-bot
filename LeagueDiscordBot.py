@@ -7,6 +7,7 @@ import arrow
 import random
 import StoreMatches
 import time
+import pymysql
 from cassiopeia import Summoner, Match, Patch, Champion
 from cassiopeia.core import MatchHistory
 from cassiopeia import Queue
@@ -27,7 +28,7 @@ all_champions = kass.Champions(region="NA")
 latestLeaguePatch = kass.get_versions(region="NA")
 
 
-StoreMatches.populateTables()
+#StoreMatches.populateTables()
 
 # Shows when bot is ready
 @bot.event
@@ -153,5 +154,40 @@ async def player(playerName):
 async def playerError(error):
     await bot.say(error)
 
+
+@bot.command()
+async def guide(champName):
+    """Enter <champion name> to get a guide for the champion"""
+    champName = champName.title()
+    try:
+        conn = pymysql.connect(user=config.dbUsername, password=config.dbPassword, host=config.dbIP, database=config.dbName)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+    except pymysql.Error as err:
+        print(err)
+
+    await bot.say(champName)
+
+    query = "SELECT * FROM champions WHERE champName = '%s'"
+    cursor.execute(query % champName)
+
+    for row in cursor:
+        await bot.say("ITEMS")
+        await bot.say("------------------")
+        for x in range (1, 8):
+            await bot.say(row['item%s'%x])
+        await bot.say("------------------")
+        await bot.say("RUNES")
+        await bot.say("------------------")
+        for x in range (1, 8):
+            await bot.say(row['rune%s'%x])
+        await bot.say("------------------")
+        await bot.say("SPELLS")
+        await bot.say("------------------")
+        for x in range (1, 3):
+            await bot.say(row['spell%s'%x])
+
+    if conn.open:
+        conn.close()
+    cursor.close()
 
 bot.run(config.discordAPI)

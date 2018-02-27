@@ -1,3 +1,6 @@
+# This script should only run when there is a new patch for League
+# When there is a new patch, the script will collect new information on all champions
+
 import cassiopeia as kass
 import config
 import arrow
@@ -16,7 +19,7 @@ kass.set_riot_api_key(config.riotAPI)
 # Pulls matches from the start of the most recent patch using a random SILVER player as starting point
 def collectMatches():
     summoner = Summoner(name="Ung5r", region="NA")  # A default summoner to pull matches from
-    patchNo = Patch.from_str('8.1', region="NA")
+    patchNo = Patch.from_str('8.2', region="NA")
 
     # Create some sorted lists to store the IDs of players and matches being analyzed.
     # Match info can only be pulled on a player basis so we'll have to pull each player
@@ -28,17 +31,32 @@ def collectMatches():
 
     matchesList = []
 
-    while unpulledSummonerIDS and len(pulledMatchIDS) < 1000:
+    while unpulledSummonerIDS and len(pulledMatchIDS) < 5000:
         newSummonerID = random.choice(unpulledSummonerIDS)
-        newSummoner = Summoner(id=newSummonerID, region="NA")
+        try:
+            newSummoner = Summoner(id=newSummonerID, region="NA")
+        except:
+            print("Unable to retrieve new summoner, retrying in 10s")
+            time.sleep(10)
+            newSummoner = Summoner(id=newSummonerID, region="NA")
         matches = filterHistory(newSummoner, patchNo)
-        unpulledMatchIDS.update([match.id for match in matches if match.id not in unpulledMatchIDS])
+        try:
+            unpulledMatchIDS.update([match.id for match in matches if match.id not in unpulledMatchIDS])
+        except:
+            print("Unable to add to unpulled matches, retrying in 10s")
+            time.sleep(10)
+            unpulledMatchIDS.update([match.id for match in matches if match.id not in unpulledMatchIDS])
         unpulledSummonerIDS.remove(newSummonerID)
         pulledSummonerIDS.add(newSummonerID)
 
         while unpulledMatchIDS:
             newMatchID = random.choice(unpulledMatchIDS)
-            newMatch = Match(id=newMatchID, region="NA")
+            try:
+                newMatch = Match(id=newMatchID, region="NA")
+            except:
+                print("Unable to retrieve new match, retrying in 10s")
+                time.sleep(10)
+                newMatch = Match(id=newMatchID, region="NA")
             for participant in newMatch.participants:
                 if participant.summoner.id not in pulledSummonerIDS and participant.summoner.id not in unpulledSummonerIDS:
                     unpulledSummonerIDS.add(participant.summoner.id)
@@ -58,7 +76,12 @@ def filterHistory(summoner, patch):
     endTime = patch.end
     if endTime is None:
         endTime = arrow.now()   # If there is an issue with the most recent patch, we'll go until current time
-    matchHistory = MatchHistory(summoner=summoner, queues={Queue.ranked_flex_fives}, begin_time=patch.start, end_time=endTime)
+    try:
+        matchHistory = MatchHistory(summoner=summoner, queues={Queue.ranked_flex_fives}, begin_time=patch.start, end_time=endTime)
+    except:
+        print("Could not retrieve match history, retrying in 10s")
+        time.sleep(10)
+        filterHistory(summoner, patch)
     return matchHistory
 
 # Collect usage information on a champion-basis of items and summoner spells
